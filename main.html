@@ -1,0 +1,921 @@
+<!-- <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Results Dashboard</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500&display=swap" rel="stylesheet">
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-storage.js"></script>
+    <style>
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: #e9f7ff; /* Light blue background */
+            margin: 20px;
+            border-radius: 15px; /* Rounded corners for body */
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1); /* Soft shadow */
+        }
+        h1 {
+            color: #007bff; /* Blue color for heading */
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .controls {
+            margin-bottom: 20px;
+            background: #fff; /* White background for controls */
+            padding: 15px;
+            border-radius: 10px; /* Rounded corners */
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); /* Soft shadow */
+        }
+        button {
+            margin-right: 10px;
+            background-color: #007bff; /* Blue button color */
+            color: white; /* White text color */
+            border: none; /* No border */
+            border-radius: 5px; /* Rounded button corners */
+            transition: background-color 0.3s; /* Smooth transition */
+        }
+        button:hover {
+            background-color: #0056b3; /* Darker blue on hover */
+        }
+        .spinner {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .chart-container {
+            width: 100%;
+            margin: auto;
+            display: none; /* Hide charts initially */
+            background: #ffffff; /* White background for charts */
+            padding: 20px; /* Padding around charts */
+            border-radius: 10px; /* Rounded corners for chart containers */
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); /* Soft shadow */
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Student Results Dashboard</h1>
+
+        <div class="controls d-flex justify-content-between align-items-center mb-4">
+            <label for="yearSelect" class="mr-2">Select Year:</label>
+            <select id="yearSelect" class="form-control w-25">
+                <option value="">Select a year</option>
+                <option value="results23-24">2023-24</option>
+                <option value="results22-23">2022-23</option>
+                <option value="results21-22">2021-22</option>
+                <option value="results20-21">2020-21</option>
+                <option value="results19-20">2019-20</option>
+            </select>
+
+            <div class="year-buttons">
+                <button class="btn btn-primary" id="feBtn">FE</button>
+                <button class="btn btn-primary" id="seBtn">SE</button>
+                <button class="btn btn-primary" id="teBtn">TE</button>
+                <button class="btn btn-primary" id="beBtn">BE</button>
+            </div>
+        </div>
+
+        <div class="spinner">
+            <div class="spinner-border" role="status">
+                <span class="sr-only">Loading...</span>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-6">
+                <div class="chart-container">
+                    <canvas id="lineChart" width="400" height="200"></canvas>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="chart-container">
+                    <canvas id="pieChart" width="400" height="200"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyCNP-f4HIoNbUQdpyhq6Lh2p1jZ35udQ8o",
+            authDomain: "sewt-proj.firebaseapp.com",
+            databaseURL: "https://sewt-proj-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "sewt-proj",
+            storageBucket: "sewt-proj.appspot.com",
+            messagingSenderId: "576920412712",
+            appId: "1:576920412712:web:272403d27bc7c7eb394b1d"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const storage = firebase.storage();
+
+        const buttonAccess = {
+            "results23-24": ['feBtn'],
+            "results22-23": ['feBtn', 'seBtn'],
+            "results21-22": ['feBtn', 'seBtn', 'teBtn'],
+            "results20-21": ['feBtn', 'seBtn', 'teBtn', 'beBtn'],
+            "results19-20": ['feBtn', 'seBtn', 'teBtn', 'beBtn']
+        };
+
+        document.getElementById("yearSelect").addEventListener("change", (e) => {
+            const selectedYear = e.target.value;
+            updateButtonStates(selectedYear);
+            if (selectedYear) loadAndRenderCharts(selectedYear);
+        });
+
+        document.querySelectorAll(".year-buttons button").forEach(button => {
+            button.addEventListener("click", () => {
+                const selectedYear = document.getElementById("yearSelect").value;
+                loadAndRenderCharts(selectedYear, button.textContent.toUpperCase());
+            });
+        });
+
+        function updateButtonStates(selectedYear) {
+            document.querySelectorAll(".year-buttons button").forEach(button => {
+                button.disabled = !buttonAccess[selectedYear]?.includes(button.id);
+            });
+        }
+
+        
+
+        async function fetchCSV(year) {
+            const filePaths = {
+                "results23-24": "uploads/results23-24.csv",
+                "results22-23": "uploads/results22-23.csv",
+                "results21-22": "uploads/results21-22.csv",
+                "results20-21": "uploads/results20-21.csv",
+                "results19-20": "uploads/results19-20.csv"
+            };
+
+            const filePath = filePaths[year];
+            const storageRef = storage.ref(filePath);
+            const url = await storageRef.getDownloadURL();
+            const response = await fetch(url);
+            return response.text(); 
+        }
+
+        async function loadAndRenderCharts(selectedResultYear, selectedDegree) {
+        try {
+            $(".spinner").show();
+            const csvData = await fetchCSV(selectedResultYear);
+            const { overallResults, passFailData } = processCSVData(csvData, selectedDegree);
+            renderLineChart(overallResults);
+            renderPieChart(passFailData);
+        } catch (error) {
+            console.error("Error fetching or processing CSV data:", error);
+        } finally {
+            $(".spinner").hide();
+        }
+    }
+
+    function processCSVData(csvData, selectedDegree) {
+        const overallResults = [];
+        const passFailData = { pass: 0, fail: 0 };
+        const rows = csvData.split('\n').slice(1); // Skip header row
+
+        rows.forEach(row => {
+            const columns = row.split(',');
+            const feResult = columns[5]?.trim().toUpperCase() || ''; // FE Final
+            const seResult = columns[9]?.trim().toUpperCase() || ''; // SE Final
+            const teResult = columns[13]?.trim().toUpperCase() || ''; // TE Final
+            const beResult = columns[17]?.trim().toUpperCase() || ''; // BE Final
+
+            let yearResult;
+            switch (selectedDegree) {
+                case 'FE':
+                    yearResult = feResult;
+                    break;
+                case 'SE':
+                    yearResult = seResult;
+                    break;
+                case 'TE':
+                    yearResult = teResult;
+                    break;
+                case 'BE':
+                    yearResult = beResult;
+                    break;
+                default:
+                    yearResult = '';
+            }
+
+            console.log(`Selected ${selectedDegree} Result:`, yearResult);
+
+            // Update passFailData based on year-specific results
+            if (yearResult === 'P' || yearResult === 'p' || yearResult === 'NA') {
+                passFailData.pass++;
+            } else if (yearResult === 'F' || yearResult === 'F(drop)') {
+                passFailData.fail++;
+            }
+            
+            // Assume pass/fail for line chart is based on each year's final
+            overallResults.push((yearResult === 'P' || yearResult === 'NA' || yearResult === 'p') ? 1 : 0);
+        });
+
+        return { overallResults, passFailData };
+    }
+    function getColumnIndex(selectedDegree) {
+        const indexMap = { 'FE': 5, 'SE': 6, 'TE': 7, 'BE': 8 }; // Column indices for each degree result
+        return indexMap[selectedDegree] || -1;
+    }
+
+        
+
+        let lineChart, pieChart;
+
+        function renderLineChart(data) {
+            const ctx = document.getElementById('lineChart').getContext('2d');
+            if (lineChart) lineChart.destroy(); 
+
+            lineChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: Array.from({ length: data.length }, (_, i) => `Student ${i + 1}`),
+                    datasets: [{
+                        label: 'Overall Results',
+                        data: data,
+                        backgroundColor: 'rgba(0, 123, 255, 0.2)',
+                        borderColor: 'rgba(0, 123, 255, 1)',
+                        borderWidth: 2,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                }
+            });
+            $('.chart-container').fadeIn(); // Fade in the line chart
+        }
+
+        function renderPieChart(data) {
+            const ctx = document.getElementById('pieChart').getContext('2d');
+            if (pieChart) pieChart.destroy(); 
+
+            pieChart = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: ['Pass', 'Fail'],
+                    datasets: [{
+                        data: [data.pass, data.fail],
+                        backgroundColor: ['#a2d5ff', '#ff9aa2'], // Green for pass, Red for fail
+                    }]
+                },
+                options: {
+                    responsive: true,
+                }
+            });
+            $('.chart-container').fadeIn(); // Fade in the pie chart
+        }
+    </script>
+</body>
+</html> 
+
+ -->
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- 
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Results Dashboard</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500&display=swap" rel="stylesheet">
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-storage.js"></script>
+    <style>
+        /* Your CSS for spinner (hidden by default) */
+        .spinner {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Student Results Dashboard</h1>
+        <div class="controls d-flex justify-content-between align-items-center mb-4">
+            <label for="yearSelect" class="mr-2">Select Year:</label>
+            <select id="yearSelect" class="form-control w-25">
+                <option value="">Select a year</option>
+                <option value="results23-24">2023-24</option>
+                <option value="results22-23">2022-23</option>
+                <option value="results21-22">2021-22</option>
+                <option value="results20-21">2020-21</option>
+                <option value="results19-20">2019-20</option>
+            </select>
+
+            <div class="year-buttons">
+                <button class="btn btn-primary" id="feBtn">FE</button>
+                <button class="btn btn-primary" id="seBtn">SE</button>
+                <button class="btn btn-primary" id="teBtn">TE</button>
+                <button class="btn btn-primary" id="beBtn">BE</button>
+            </div>
+        </div>
+
+        <div class="spinner">
+            <div class="spinner-border" role="status">
+                <span class="sr-only">Loading...</span>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-6">
+                <div class="chart-container">
+                    <canvas id="lineChart" width="400" height="200"></canvas>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="chart-container">
+                    <canvas id="pieChart" width="400" height="200"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Firebase configuration and initialization
+        const firebaseConfig = {
+            apiKey: "AIzaSyCNP-f4HIoNbUQdpyhq6Lh2p1jZ35udQ8o",
+            authDomain: "sewt-proj.firebaseapp.com",
+            projectId: "sewt-proj",
+            storageBucket: "sewt-proj.appspot.com",
+            messagingSenderId: "576920412712",
+            appId: "1:576920412712:web:272403d27bc7c7eb394b1d"
+        };
+    
+        firebase.initializeApp(firebaseConfig);
+        const storage = firebase.storage();
+    
+        const buttonAccess = {
+            "results23-24": ['feBtn'],
+            "results22-23": ['feBtn', 'seBtn'],
+            "results21-22": ['feBtn', 'seBtn', 'teBtn'],
+            "results20-21": ['feBtn', 'seBtn', 'teBtn', 'beBtn'],
+            "results19-20": ['feBtn', 'seBtn', 'teBtn', 'beBtn']
+        };
+    
+        document.getElementById("yearSelect").addEventListener("change", (e) => {
+            const selectedYear = e.target.value;
+            updateButtonStates(selectedYear);
+        });
+    
+        document.querySelectorAll(".year-buttons button").forEach(button => {
+            button.addEventListener("click", () => {
+                const selectedYear = document.getElementById("yearSelect").value;
+                const selectedDegree = button.textContent.toUpperCase();  // 'FE', 'SE', etc.
+                loadAndRenderCharts(selectedYear, selectedDegree);
+            });
+        });
+    
+        function updateButtonStates(selectedYear) {
+            document.querySelectorAll(".year-buttons button").forEach(button => {
+                button.disabled = !buttonAccess[selectedYear]?.includes(button.id);
+            });
+        }
+    
+        async function fetchCSV(year) {
+            const filePaths = {
+                "results23-24": "uploads/results23-24.csv",
+                "results22-23": "uploads/results22-23.csv",
+                "results21-22": "uploads/results21-22.csv",
+                "results20-21": "uploads/results20-21.csv",
+                "results19-20": "uploads/results19-20.csv"
+            };
+    
+            const filePath = filePaths[year];
+            const storageRef = storage.ref(filePath);
+            const url = await storageRef.getDownloadURL();
+            const response = await fetch(url);
+            return response.text();
+        }
+    
+        async function loadAndRenderCharts(selectedResultYear, selectedDegree) {
+            try {
+                $(".spinner").show();
+                const csvData = await fetchCSV(selectedResultYear);
+                const { overallResults, passFailData, rollNumbers } = processCSVData(csvData, selectedDegree);  // Correct call
+                renderLineChart(overallResults, rollNumbers);
+                renderPieChart(passFailData);
+            } catch (error) {
+                console.error("Error fetching or processing CSV data:", error);
+            } finally {
+                $(".spinner").hide();
+            }
+        }
+    
+        function processCSVData(csvData, selectedDegree) {
+            const passFailData = {
+                pass: 0,
+                fail: 0
+            };
+            const overallResults = [];
+            const rollNumbers = [];  // Initialize rollNumbers as an empty array
+
+            const rows = csvData.split('\n');
+            rows.shift();  // Remove the header row
+
+            rows.forEach(row => {
+                const columns = row.split(',');
+                const rollNumber = columns[1]?.trim();  // Assuming roll numbers are in the first column
+                let yearResult;
+
+                switch (selectedDegree) {
+                    case 'FE':
+                        yearResult = columns[5]?.trim().toUpperCase() || '';
+                        break;
+                    case 'SE':
+                        yearResult = columns[9]?.trim().toUpperCase() || '';
+                        break;
+                    case 'TE':
+                        yearResult = columns[13]?.trim().toUpperCase() || '';
+                        break;
+                    case 'BE':
+                        yearResult = columns[17]?.trim().toUpperCase() || '';
+                        break;
+                    default:
+                        console.error("Invalid degree selected");
+                        return;
+                }
+
+                if (yearResult === 'P' || yearResult === 'NA' || yearResult === 'p' || yearResult === 'Pass') {
+                    passFailData.pass++;
+                    overallResults.push(1);
+                } else if (yearResult === 'F' || yearResult === 'F(DROP)' || yearResult === 'f' || yearResult === 'F(Dropped)' || yearResult === 'F(dropped)' || yearResult === 'F(Left)dropped') {
+                    passFailData.fail++;
+                    overallResults.push(0);
+                }
+
+                if (rollNumber) {
+                    rollNumbers.push(rollNumber);  // Add each roll number to the array
+                }
+            });
+
+            return { overallResults, passFailData, rollNumbers };
+        }
+
+    
+        let lineChart, pieChart;
+    
+        function renderLineChart(data, rollNumbers) {
+            const ctx = document.getElementById('lineChart').getContext('2d');
+            if (lineChart) lineChart.destroy();
+
+            lineChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: rollNumbers,  // Use rollNumbers as x-axis labels
+                    datasets: [{
+                        label: 'Overall Results',
+                        data: data,
+                        backgroundColor: 'rgba(0, 123, 255, 0.2)',
+                        borderColor: 'rgba(0, 123, 255, 1)',
+                        borderWidth: 2,
+                        fill: true
+                    }]
+                },
+                options: { responsive: true }
+            });
+            $('.chart-container').fadeIn();
+        }
+
+    
+        function renderPieChart(data) {
+            const ctx = document.getElementById('pieChart').getContext('2d');
+            if (pieChart) pieChart.destroy();
+    
+            pieChart = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: ['Pass', 'Fail'],
+                    datasets: [{
+                        data: [data.pass, data.fail],
+                        backgroundColor: ['#a2d5ff', '#ff9aa2']
+                    }]
+                },
+                options: { responsive: true }
+            });
+            $('.chart-container').fadeIn();
+        }
+    </script>
+</body>
+</html> -->
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Results Dashboard</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500&display=swap" rel="stylesheet">
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-storage.js"></script>
+    <script src="firebase-config.js"></script>
+
+    <style>
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: #f3f4f6;
+            color: #333;
+        }
+
+        h1 {
+            text-align: center;
+            font-weight: 500;
+            margin: 20px 0;
+            color: #007bff;
+        }
+
+        .controls {
+            margin-top: 20px;
+            margin-bottom: 20px;
+            background-color: #fff;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .year-buttons .btn {
+            margin-left: 10px;
+            font-weight: 500;
+            background-color: #007bff;
+            color: #fff;
+            border: none;
+        }
+
+        .year-buttons .btn.disabled {
+            background-color: #ccc;
+            color: #999;
+            cursor: not-allowed;
+        }
+
+        .spinner {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 10;
+        }
+
+        .chart-container {
+            margin-top: 20px;
+            background-color: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            animation: fadeIn 0.6s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .chart-container canvas {
+            max-width: 100%;
+            height: auto !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Student Results Dashboard</h1>
+        <div class="controls d-flex justify-content-between align-items-center">
+            <label for="yearSelect" class="mr-2">Select Year:</label>
+            <select id="yearSelect" class="form-control w-25">
+                <option value="">Select a year</option>
+                <option value="results23-24">2023-24</option>
+                <option value="results22-23">2022-23</option>
+                <option value="results21-22">2021-22</option>
+                <option value="results20-21">2020-21</option>
+                <option value="results19-20">2019-20</option>
+            </select>
+            <div class="year-buttons">
+                <button class="btn" id="feBtn" disabled>FE</button>
+                <button class="btn" id="seBtn" disabled>SE</button>
+                <button class="btn" id="teBtn" disabled>TE</button>
+                <button class="btn" id="beBtn" disabled>BE</button>
+            </div>
+        </div>
+
+        <div class="spinner">
+            <div class="spinner-border text-primary" role="status">
+                <span class="sr-only">Loading...</span>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-6">
+                <div class="chart-container">
+                    <canvas id="lineChart"></canvas>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="chart-container">
+                    <canvas id="pieChart"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-md-12">
+                <div class="chart-container">
+                    <canvas id="scatterChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        firebase.initializeApp(firebaseConfig);
+        const storage = firebase.storage();
+        function destroyCharts() {
+            if (lineChartInstance) {
+                lineChartInstance.destroy();
+            }
+            if (pieChartInstance) {
+                pieChartInstance.destroy();
+            }
+            if (scatterChartInstance) {
+                scatterChartInstance.destroy();
+            }
+        }
+        const buttonAccess = {
+            "results23-24": ['feBtn'],
+            "results22-23": ['feBtn', 'seBtn'],
+            "results21-22": ['feBtn', 'seBtn', 'teBtn'],
+            "results20-21": ['feBtn', 'seBtn', 'teBtn', 'beBtn'],
+            "results19-20": ['feBtn', 'seBtn', 'teBtn', 'beBtn']
+        };
+
+        $("#yearSelect").change(function () {
+            const selectedYear = $(this).val();
+            updateButtonStates(selectedYear);
+        });
+
+        $(".year-buttons .btn").click(function () {
+            const selectedYear = $("#yearSelect").val();
+            const selectedDegree = $(this).text();
+            loadAndRenderCharts(selectedYear, selectedDegree);
+        });
+
+        function updateButtonStates(selectedYear) {
+            $(".year-buttons .btn").each(function () {
+                $(this).prop("disabled", !buttonAccess[selectedYear]?.includes(this.id));
+            });
+        }
+
+        async function fetchCSV(year) {
+            const filePaths = {
+                "results23-24": "uploads/results23-24.csv",
+                "results22-23": "uploads/results22-23.csv",
+                "results21-22": "uploads/results21-22.csv",
+                "results20-21": "uploads/results20-21.csv",
+                "results19-20": "uploads/results19-20.csv"
+            };
+
+            const filePath = filePaths[year];
+            const storageRef = storage.ref(filePath);
+            const url = await storageRef.getDownloadURL();
+            const response = await $.ajax({ url, dataType: 'text' });
+            return response;
+        }
+
+        let lineChartInstance = null;
+        let pieChartInstance = null;
+        let scatterChartInstance = null;
+
+        async function loadAndRenderCharts(selectedResultYear, selectedDegree) {
+            try {
+                $(".spinner").show();
+                const csvData = await fetchCSV(selectedResultYear);
+                const { overallResults, passFailData, rollNumbers, averages } = processCSVData(csvData, selectedDegree);
+                
+                // Destroy existing charts before rendering new ones
+                destroyCharts();
+
+                renderLineChart(overallResults, rollNumbers);
+                renderPieChart(passFailData);
+                renderScatterPlot(averages, rollNumbers);
+            } catch (error) {
+                console.error("Error fetching or processing CSV data:", error);
+            } finally {
+                $(".spinner").hide();
+            }
+        }
+
+        function destroyCharts() {
+            if (lineChartInstance) {
+                lineChartInstance.destroy();
+                lineChartInstance = null;  // Reset after destroying
+            }
+            if (pieChartInstance) {
+                pieChartInstance.destroy();
+                pieChartInstance = null;  // Reset after destroying
+            }
+            if (scatterChartInstance) {
+                scatterChartInstance.destroy();
+                scatterChartInstance = null;  // Reset after destroying
+            }
+        }
+
+        function renderLineChart(overallResults, rollNumbers) {
+            const ctx = document.getElementById('lineChart').getContext('2d');
+            if (lineChartInstance) {
+                lineChartInstance.destroy(); // Ensures we don't have multiple instances on same canvas
+            }
+            lineChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: rollNumbers,
+                    datasets: [{
+                        label: 'Scores',
+                        data: overallResults,
+                        borderColor: '#007bff',
+                        fill: false
+                    }]
+                },
+                options: {
+                    responsive: true
+                }
+            });
+        }
+
+        function renderPieChart(passFailData) {
+            const ctx = document.getElementById('pieChart').getContext('2d');
+            if (pieChartInstance) {
+                pieChartInstance.destroy(); // Ensures we don't have multiple instances on same canvas
+            }
+            pieChartInstance = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: ['Pass', 'Fail'],
+                    datasets: [{
+                        data: [passFailData.pass, passFailData.fail],
+                        backgroundColor: ['#87BB62', '#4394E5']
+                    }]
+                },
+                options: {
+                    responsive: true
+                }
+            });
+        }
+
+        function renderScatterPlot(averages, rollNumbers) {
+            const ctx = document.getElementById('scatterChart').getContext('2d');
+            if (scatterChartInstance) {
+                scatterChartInstance.destroy(); // Ensures we don't have multiple instances on same canvas
+            }
+            scatterChartInstance = new Chart(ctx, {
+                type: 'scatter',
+                data: {
+                    labels: rollNumbers,
+                    datasets: [{
+                        label: 'Average Scores',
+                        data: averages.map((avg, i) => ({ x: i, y: avg })),
+                        backgroundColor: '#ffa726'
+                    }]
+                },
+                options: {
+                    responsive: true
+                }
+            });
+        }
+
+
+        function processCSVData(csvData, selectedDegree) {
+            const passFailData = { pass: 0, fail: 0 };
+            const overallResults = [];
+            const rollNumbers = [];
+            const averages = [];
+
+            const rows = csvData.split('\n');
+            rows.shift();
+
+            rows.forEach(row => {
+                const columns = row.split(',');
+                const rollNumber = columns[1]?.trim();
+                let yearResult;
+                let average = 0;
+
+                switch (selectedDegree) {
+                    case 'FE':
+                        yearResult = columns[5]?.trim().toUpperCase();
+                        average = parseFloat(columns[6]?.trim()) || 0;
+                        break;
+                    case 'SE':
+                        yearResult = columns[9]?.trim().toUpperCase();
+                        average = parseFloat(columns[10]?.trim()) || 0;
+                        break;
+                    case 'TE':
+                        yearResult = columns[13]?.trim().toUpperCase();
+                        average = parseFloat(columns[14]?.trim()) || 0;
+                        break;
+                    case 'BE':
+                        yearResult = columns[17]?.trim().toUpperCase();
+                        average = parseFloat(columns[18]?.trim()) || 0;
+                        break;
+                    default:
+                        console.error("Invalid degree selected");
+                        return;
+                }
+
+                if (['P', 'NA', 'Pass'].includes(yearResult)) {
+                    passFailData.pass++;
+                    overallResults.push(average);
+                } else if (['F', 'F(DROP)', 'F(dropped)'].includes(yearResult)) {
+                    passFailData.fail++;
+                    overallResults.push(average);
+                }
+
+                if (rollNumber) {
+                    rollNumbers.push(rollNumber);
+                    averages.push(average);
+                }
+            });
+
+            return { overallResults, passFailData, rollNumbers, averages };
+        }
+    </script>
+</body>
+</html>
